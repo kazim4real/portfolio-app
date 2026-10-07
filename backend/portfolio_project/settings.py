@@ -45,7 +45,13 @@ MIDDLEWARE = [
 ROOT_URLCONF = "portfolio_project.urls"
 
 # Angular's build output lands here (see frontend/angular.json "outputPath").
-ANGULAR_DIST_DIR = BASE_DIR.parent / "frontend" / "dist" / "portfolio-frontend" / "browser"
+# Angular's build output. In production (Azure), the GitHub Actions workflow
+# builds Angular and copies it to backend/frontend_dist before deploying, so
+# only the backend/ folder needs to be uploaded. Locally, it's still read
+# straight from frontend/dist after you run `npm run build`.
+ANGULAR_DIST_DIR = BASE_DIR / "frontend_dist"
+if not ANGULAR_DIST_DIR.exists():
+    ANGULAR_DIST_DIR = BASE_DIR.parent / "frontend" / "dist" / "portfolio-frontend" / "browser"
 
 TEMPLATES = [
     {
@@ -86,17 +92,21 @@ USE_TZ = True
 
 # Static files: Angular's built assets + Django's own (admin, DRF browsable API)
 STATIC_URL = "static/"
-STATICFILES_DIRS = [ANGULAR_DIST_DIR] if ANGULAR_DIST_DIR.exists() else []
 STATIC_ROOT = BASE_DIR / "staticfiles"
-
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": (
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if not DEBUG
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        ),
     },
 }
+
+WHITENOISE_ROOT = ANGULAR_DIST_DIR if ANGULAR_DIST_DIR.exists() else None
 
 # Media (uploaded images for projects, resume PDF, etc.)
 MEDIA_URL = "media/"
