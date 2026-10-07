@@ -18,6 +18,11 @@ SECRET_KEY = env("SECRET_KEY", default="dev-only-insecure-secret-key")
 DEBUG = env("DEBUG", default=True)
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["127.0.0.1", "localhost"])
 
+# Needed for the Django admin to accept POST requests (login, forms) once the
+# site is served over https on Azure. Without this, admin login fails with a
+# CSRF error because the request's Origin header won't be trusted by default.
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -44,7 +49,6 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "portfolio_project.urls"
 
-# Angular's build output lands here (see frontend/angular.json "outputPath").
 # Angular's build output. In production (Azure), the GitHub Actions workflow
 # builds Angular and copies it to backend/frontend_dist before deploying, so
 # only the backend/ folder needs to be uploaded. Locally, it's still read
@@ -71,12 +75,30 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "portfolio_project.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+if env("DB_NAME", default=""):
+    # Production / anywhere a real Postgres database is configured via env vars.
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env("DB_NAME"),
+            "USER": env("DB_USER"),
+            "PASSWORD": env("DB_PASSWORD"),
+            "HOST": env("DB_HOST"),
+            "PORT": env("DB_PORT", default="5432"),
+            "OPTIONS": {"sslmode": env("DB_SSLMODE", default="require")},
+        }
     }
-}
+else:
+    # SQLite. Locally this just sits next to manage.py, zero setup required.
+    # On Azure App Service (Linux), the deployed code folder is replaced on
+    # every push, so set SQLITE_PATH=/home/db.sqlite3 in App Settings there —
+    # /home is the one directory that persists across deploys.
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": env("SQLITE_PATH", default=str(BASE_DIR / "db.sqlite3")),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -90,7 +112,10 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-# Static files: Angular's built assets + Django's own (admin, DRF browsable API)
+# Static files: Django's own static assets (admin, DRF browsable API).
+# Angular's built JS/CSS bundles are served separately via WHITENOISE_ROOT
+# below, not through STATICFILES_DIRS — Angular's index.html requests files
+# like /main-xxxx.js at the site root, not under /static/.
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
@@ -106,11 +131,16 @@ STORAGES = {
     },
 }
 
+# Serves Angular's built files (index.html, main-xxxx.js, styles-xxxx.css)
+# directly from the site root via Whitenoise, so paths like /main-xxxx.js
+# resolve correctly instead of 404ing or falling through to the catch-all.
 WHITENOISE_ROOT = ANGULAR_DIST_DIR if ANGULAR_DIST_DIR.exists() else None
 
-# Media (uploaded images for projects, resume PDF, etc.)
+# Media (uploaded images for projects, resume PDF, etc.). Same deal as
+# SQLITE_PATH above — set MEDIA_ROOT=/home/media in Azure App Settings so
+# uploads survive deploys instead of living in the replaced code folder.
 MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = env("MEDIA_ROOT", default=str(BASE_DIR / "media"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
